@@ -48,7 +48,7 @@ bot.onText(/\/getcode/, (msg) => {
     // Check if user already has a code
     const existingCode = db.codes.find(c => c.userId === userId);
     if (existingCode) {
-        bot.sendMessage(chatId, `You already have a code: **${existingCode.code}**. Use it to log in. This code is permanent until used.`);
+        bot.sendMessage(chatId, `You already have a code: **${existingCode.code}**. Use it to log in. This code is permanent until used.`, { chat_id: chatId, message_thread_id: 1 });
         return;
     }
 
@@ -67,7 +67,7 @@ bot.onText(/\/getcode/, (msg) => {
     saveDb();
 
     // Send the code to the user
-    bot.sendMessage(chatId, `Welcome to HackNet Predictor! Your login code is: **${code}**\nThis code is permanent until used.`);
+    bot.sendMessage(chatId, `Welcome to HackNet Predictor! Your login code is: **${code}**\nThis code is permanent until used.`, { chat_id: chatId, message_thread_id: 1 });
 });
 
 // Telegram bot: Handle /refill command (admin only)
@@ -77,7 +77,7 @@ bot.onText(/\/refill (\w+) (\d+)/, (msg, match) => {
 
     // Only allow admin to use this command
     if (userId !== ADMIN_TELEGRAM_ID) {
-        bot.sendMessage(chatId, "You are not authorized to use this command.");
+        bot.sendMessage(chatId, "You are not authorized to use this command.", { chat_id: chatId, message_thread_id: 1 });
         return;
     }
 
@@ -274,7 +274,7 @@ app.post('/submit-task', (req, res) => {
         return res.json({ success: false, message: "User ID, task index, and URL are required." });
     }
 
-    // Check if user already has a pending task submission
+    // Check if user already has a pending task submission for this task
     const existingTask = db.pendingTasks.find(t => t.userId === userId && t.taskIndex === taskIndex);
     if (existingTask) {
         return res.json({ success: false, message: "You have already submitted this task. Wait for admin approval." });
