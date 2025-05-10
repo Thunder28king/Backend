@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Telegram bot token
+// Telegram bot token from environment variable
 const TELEGRAM_BOT_TOKEN = "7423007718:AAF6Quzol_V7ZyXQvGlBdVWeKgBTOW_VMI4";
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
@@ -41,14 +41,18 @@ function generateCode() {
 }
 
 // Telegram bot: Handle /getcode command
-bot.onText(/\/getcode/, (msg) => {
+bot.onText(/\/getcode/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id.toString();
 
     // Check if user already has a code
     const existingCode = db.codes.find(c => c.userId === userId);
     if (existingCode) {
-        bot.sendMessage(chatId, `You already have a code: **${existingCode.code}**. Use it to log in. This code is permanent until used.`, { chat_id: chatId, message_thread_id: 1 });
+        try {
+            await bot.sendMessage(chatId, `You already have a code: **${existingCode.code}**. Use it to log in. This code is permanent until used.`);
+        } catch (error) {
+            console.error('Error sending /getcode message:', error.message);
+        }
         return;
     }
 
@@ -67,17 +71,25 @@ bot.onText(/\/getcode/, (msg) => {
     saveDb();
 
     // Send the code to the user
-    bot.sendMessage(chatId, `Welcome to HackNet Predictor! Your login code is: **${code}**\nThis code is permanent until used.`, { chat_id: chatId, message_thread_id: 1 });
+    try {
+        await bot.sendMessage(chatId, `Welcome to HackNet Predictor! Your login code is: **${code}**\nThis code is permanent until used.`);
+    } catch (error) {
+        console.error('Error sending /getcode response:', error.message);
+    }
 });
 
 // Telegram bot: Handle /refill command (admin only)
-bot.onText(/\/refill (\w+) (\d+)/, (msg, match) => {
+bot.onText(/\/refill (\w+) (\d+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id.toString();
 
     // Only allow admin to use this command
     if (userId !== ADMIN_TELEGRAM_ID) {
-        bot.sendMessage(chatId, "You are not authorized to use this command.", { chat_id: chatId, message_thread_id: 1 });
+        try {
+            await bot.sendMessage(chatId, "You are not authorized to use this command.");
+        } catch (error) {
+            console.error('Error sending /refill unauthorized message:', error.message);
+        }
         return;
     }
 
@@ -86,7 +98,11 @@ bot.onText(/\/refill (\w+) (\d+)/, (msg, match) => {
 
     const codeEntry = db.codes.find(c => c.code === code);
     if (!codeEntry) {
-        bot.sendMessage(chatId, `Code ${code} not found.`, { chat_id: chatId, message_thread_id: 1 });
+        try {
+            await bot.sendMessage(chatId, `Code ${code} not found.`);
+        } catch (error) {
+            console.error('Error sending /refill code not found message:', error.message);
+        }
         return;
     }
 
@@ -98,24 +114,36 @@ bot.onText(/\/refill (\w+) (\d+)/, (msg, match) => {
     db.users[targetUserId].balance += amount;
     saveDb();
 
-    bot.sendMessage(chatId, `Successfully added ${amount} coins to user with code ${code} (Telegram ID: ${targetUserId}). New balance: ${db.users[targetUserId].balance}`, { chat_id: chatId, message_thread_id: 1 });
+    try {
+        await bot.sendMessage(chatId, `Successfully added ${amount} coins to user with code ${code} (Telegram ID: ${targetUserId}). New balance: ${db.users[targetUserId].balance}`);
+    } catch (error) {
+        console.error('Error sending /refill success message:', error.message);
+    }
 });
 
 // Telegram bot: Handle /accept command (admin only)
-bot.onText(/\/accept (\w+)/, (msg, match) => {
+bot.onText(/\/accept (\w+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id.toString();
 
     // Only allow admin to use this command
     if (userId !== ADMIN_TELEGRAM_ID) {
-        bot.sendMessage(chatId, "You are not authorized to use this command.", { chat_id: chatId, message_thread_id: 1 });
+        try {
+            await bot.sendMessage(chatId, "You are not authorized to use this command.");
+        } catch (error) {
+            console.error('Error sending /accept unauthorized message:', error.message);
+        }
         return;
     }
 
     const code = match[1];
     const codeEntry = db.codes.find(c => c.code === code);
     if (!codeEntry) {
-        bot.sendMessage(chatId, `Code ${code} not found.`, { chat_id: chatId, message_thread_id: 1 });
+        try {
+            await bot.sendMessage(chatId, `Code ${code} not found.`);
+        } catch (error) {
+            console.error('Error sending /accept code not found message:', error.message);
+        }
         return;
     }
 
@@ -128,7 +156,11 @@ bot.onText(/\/accept (\w+)/, (msg, match) => {
         submission.approved = true;
         db.users[targetUserId].balance += 20; // Add 20 coins for giveaway approval
         saveDb();
-        bot.sendMessage(chatId, `Approved giveaway submission for user with code ${code} (Telegram ID: ${targetUserId}). They received 20 coins. New balance: ${db.users[targetUserId].balance}`, { chat_id: chatId, message_thread_id: 2 });
+        try {
+            await bot.sendMessage(chatId, `Approved giveaway submission for user with code ${code} (Telegram ID: ${targetUserId}). They received 20 coins. New balance: ${db.users[targetUserId].balance}`);
+        } catch (error) {
+            console.error('Error sending /accept giveaway approval message:', error.message);
+        }
         return;
     }
 
@@ -146,11 +178,19 @@ bot.onText(/\/accept (\w+)/, (msg, match) => {
         }
         db.users[targetUserId].balance += 20; // Add 20 coins for task approval
         saveDb();
-        bot.sendMessage(chatId, `Approved earn task for user with code ${code} (Telegram ID: ${targetUserId}). They received 20 coins. New balance: ${db.users[targetUserId].balance}`, { chat_id: chatId, message_thread_id: 3 });
+        try {
+            await bot.sendMessage(chatId, `Approved earn task for user with code ${code} (Telegram ID: ${targetUserId}). They received 20 coins. New balance: ${db.users[targetUserId].balance}`);
+        } catch (error) {
+            console.error('Error sending /accept task approval message:', error.message);
+        }
         return;
     }
 
-    bot.sendMessage(chatId, `No pending submission or task found for user with code ${code} (Telegram ID: ${targetUserId}).`, { chat_id: chatId, message_thread_id: 1 });
+    try {
+        await bot.sendMessage(chatId, `No pending submission or task found for user with code ${code} (Telegram ID: ${targetUserId}).`);
+    } catch (error) {
+        console.error('Error sending /accept no submission message:', error.message);
+    }
 });
 
 // API endpoint to validate codes
@@ -222,7 +262,7 @@ app.post('/update-balance', (req, res) => {
 });
 
 // API endpoint to submit giveaway link
-app.post('/submit-giveaway-link', (req, res) => {
+app.post('/submit-giveaway-link', async (req, res) => {
     const { userId, link } = req.body;
 
     if (!userId || !link) {
@@ -243,10 +283,14 @@ app.post('/submit-giveaway-link', (req, res) => {
     db.pendingSubmissions.push({ userId, link, approved: false });
     saveDb();
 
-    // Notify admin via Telegram in the "Participate" folder (message_thread_id: 2)
-    bot.sendMessage(ADMIN_TELEGRAM_ID, `User with code ${code} (Telegram ID: ${userId}) submitted a giveaway link: ${link}\nTo accept, use: /accept ${code}`, { chat_id: ADMIN_TELEGRAM_ID, message_thread_id: 2 });
-
-    res.json({ success: true, message: "Link submitted! Awaiting admin approval." });
+    // Notify admin via Telegram
+    try {
+        await bot.sendMessage(ADMIN_TELEGRAM_ID, `User with code ${code} (Telegram ID: ${userId}) submitted a giveaway link: ${link}\nTo accept, use: /accept ${code}`);
+        res.json({ success: true, message: "Link submitted! Awaiting admin approval." });
+    } catch (error) {
+        console.error('Error sending giveaway link notification:', error.message);
+        res.json({ success: true, message: "Link submitted, but failed to notify admin via Telegram." });
+    }
 });
 
 // API endpoint to check giveaway submission status
@@ -267,7 +311,7 @@ app.get('/joined-users-count', (req, res) => {
 });
 
 // API endpoint to submit a task
-app.post('/submit-task', (req, res) => {
+app.post('/submit-task', async (req, res) => {
     const { userId, taskIndex, url } = req.body;
 
     if (!userId || taskIndex === undefined || !url) {
@@ -288,10 +332,14 @@ app.post('/submit-task', (req, res) => {
     db.pendingTasks.push({ userId, taskIndex, url, approved: false });
     saveDb();
 
-    // Notify admin via Telegram in the "Earn Task" folder (message_thread_id: 3)
-    bot.sendMessage(ADMIN_TELEGRAM_ID, `User with code ${code} (Telegram ID: ${userId}) submitted an earn task (Task ${taskIndex + 1}): ${url}\nTo accept, use: /accept ${code}`, { chat_id: ADMIN_TELEGRAM_ID, message_thread_id: 3 });
-
-    res.json({ success: true, message: "Task submitted! Awaiting admin approval." });
+    // Notify admin via Telegram
+    try {
+        await bot.sendMessage(ADMIN_TELEGRAM_ID, `User with code ${code} (Telegram ID: ${userId}) submitted an earn task (Task ${taskIndex + 1}): ${url}\nTo accept, use: /accept ${code}`);
+        res.json({ success: true, message: "Task submitted! Awaiting admin approval." });
+    } catch (error) {
+        console.error('Error sending task submission notification:', error.message);
+        res.json({ success: true, message: "Task submitted, but failed to notify admin via Telegram." });
+    }
 });
 
 // API endpoint to check task status
