@@ -20,7 +20,7 @@ const DB_FILE = path.join(__dirname, 'codes.json');
 
 // Initialize database
 if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ codes: [], users: {}, pendingSubmissions: [] }));
+    fs.writeFileSync(DB_FILE, JSON.stringify({ codes: [], users: {}, pendingSubmissions: [], joinedUsers: [], tasks: [] }));
 }
 
 const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
@@ -30,11 +30,11 @@ function saveDb() {
     fs.writeFileSync(DB_FILE, JSON.stringify(db));
 }
 
-// Generate a unique 6-character code
+// Generate a unique 5-character code
 function generateCode() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     let code = '';
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 5; i++) {
         code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return code;
@@ -71,7 +71,7 @@ bot.onText(/\/getcode/, (msg) => {
 });
 
 // Telegram bot: Handle /refill command (admin only)
-bot.onText(/\/refill (\d+) (\d+)/, (msg, match) => {
+bot.onText(/\/refill (\w+) (\d+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id.toString();
 
@@ -81,9 +81,16 @@ bot.onText(/\/refill (\d+) (\d+)/, (msg, match) => {
         return;
     }
 
-    const targetUserId = match[1];
+    const code = match[1];
     const amount = parseInt(match[2]);
 
+    const codeEntry = db.codes.find(c => c.code === code);
+    if (!codeEntry) {
+        bot.sendMessage(chatId, `Code ${code} not found.`);
+        return;
+    }
+
+    const targetUserId = codeEntry.userId;
     if (!db.users[targetUserId]) {
         db.users[targetUserId] = { balance: 0, hasLoggedIn: true };
     }
@@ -91,11 +98,11 @@ bot.onText(/\/refill (\d+) (\d+)/, (msg, match) => {
     db.users[targetUserId].balance += amount;
     saveDb();
 
-    bot.sendMessage(chatId, `Successfully added ${amount} coins to user ${targetUserId}. New balance: ${db.users[targetUserId].balance}`);
+    bot.sendMessage(chatId, `Successfully added ${amount} coins to user with code ${code} (Telegram ID: ${targetUserId}). New balance: ${db.users[targetUserId].balance}`);
 });
 
 // Telegram bot: Handle /approve command (admin only)
-bot.onText(/\/approve (\d+)/, (msg, match) => {
+bot.onText(/\/approve (\w+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id.toString();
 
@@ -105,20 +112,63 @@ bot.onText(/\/approve (\d+)/, (msg, match) => {
         return;
     }
 
-    const targetUserId = match[1];
+    const code = match[1];
+    const codeEntry = db.codes.find(c => c.code === code);
+    if (!codeEntry) {
+        bot.sendMessage(chatId, `Code ${code} not found.`);
+        return;
+    }
+
+    const targetUserId = codeEntry.userId;
     const submission = db.pendingSubmissions.find(s => s.userId === targetUserId);
 
     if (!submission) {
-        bot.sendMessage(chatId, `No pending submission found for user ${targetUserId}.`);
+        bot.sendMessage(chatId, `No pending submission found for user with code ${code} (Telegram ID: ${targetUserId}).`);
         return;
     }
 
     // Remove the submission and mark as approved
     db.pendingSubmissions = db.pendingSubmissions.filter(s => s.userId !== targetUserId);
     submission.approved = true;
+
+    // Add 20 coins for link approval
+    db.users[targetUserId].balance += 20;
     saveDb();
 
-    bot.sendMessage(chatId, `Approved giveaway submission for user ${targetUserId}.`);
+    bot.sendMessage(chatId, `Approved giveaway submission for user with code ${code} (Telegram ID: ${targetUserId}). They received 20 coins. New balance: ${db.users[targetUserId].balance}`);
+});
+
+// Telegram bot: Handle /decline command (admin only)
+bot.onText(/\/decline (\w+)/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id.toString();
+
+    // Only allow admin to use this command
+    if (userId !== ADMIN_TELEGRAM_ID) {
+        bot.sendMessage(chatId, "You are not authorized to use this command.");
+        return;
+    }
+
+    const code = match[1];
+    const codeEntry = db.codes.find(c => c.code === code);
+    if (!codeEntry) {
+        bot.sendMessage(chatId, `Code ${code} not found.`);
+        return;
+    }
+
+    const targetUserId = codeEntry.userId;
+    const submission = db.pendingSubmissions.find(s => s.userId === targetUserId);
+
+    if (!submission) {
+        bot.sendMessage(chatId, `No pending submission found for user with code ${code} (Telegram ID: ${targetUserId}).`);
+        return;
+    }
+
+    // Remove the submission
+    db.pendingSubmissions = db.pendingSubmissions.filter(s => s.userId !== targetUserId);
+    saveDb();
+
+    bot.sendMessage(chatId, `Declined giveaway submission for user with code ${code} (Telegram ID: ${targetUserId}).`);
 });
 
 // API endpoint to validate codes
@@ -145,6 +195,12 @@ app.post('/validate-code', (req, res) => {
     db.users[userId].hasLoggedIn = true;
     db.users[userId].balance += 50; // Top up 50 coins on first login
     db.codes = db.codes.filter(c => c.code !== code); // Remove the code after use
+
+    // Add user to joined users list if not already present
+    if (!db.joinedUsers.includes(userId)) {
+        db.joinedUsers.push(userId);
+    }
+
     saveDb();
 
     // Respond with success
@@ -167,7 +223,14 @@ app.post('/get-balance', (req, res) => {
 
 // API endpoint to update user balance (for admin)
 app.post('/update-balance', (req, res) => {
-    const { userId, amount } = req.body;
+    const { code, amount } = req.body;
+
+    const codeEntry = db.codes.find(c => c.code === code);
+    if (!codeEntry) {
+        return res.json({ success: false, message: "Code not found." });
+    }
+
+    const userId = codeEntry.userId;
     if (!db.users[userId]) {
         db.users[userId] = { balance: 0, hasLoggedIn: true };
     }
@@ -190,12 +253,16 @@ app.post('/submit-giveaway-link', (req, res) => {
         return res.json({ success: false, message: "You have already submitted a link. Wait for admin approval." });
     }
 
+    // Find the user's code
+    const codeEntry = db.codes.find(c => c.userId === userId);
+    const code = codeEntry ? codeEntry.code : "Unknown";
+
     // Store the submission
     db.pendingSubmissions.push({ userId, link, approved: false });
     saveDb();
 
-    // Notify admin via Telegram
-    bot.sendMessage(ADMIN_TELEGRAM_ID, `User ${userId} submitted a giveaway link: ${link}\nTo approve, use: /approve ${userId}`);
+    // Notify admin via Telegram with approve/decline options
+    bot.sendMessage(ADMIN_TELEGRAM_ID, `User with code ${code} (Telegram ID: ${userId}) submitted a giveaway link: ${link}\nTo approve, use: /approve ${code}\nTo decline, use: /decline ${code}`);
 
     res.json({ success: true, message: "Link submitted! Awaiting admin approval." });
 });
@@ -210,6 +277,64 @@ app.post('/check-giveaway-status', (req, res) => {
     }
 
     res.json({ success: true, submitted: true, approved: submission.approved });
+});
+
+// API endpoint to get joined users count
+app.get('/joined-users-count', (req, res) => {
+    res.json({ count: db.joinedUsers.length });
+});
+
+// API endpoint to submit a task
+app.post('/submit-task', (req, res) => {
+    const { userId, taskIndex, url } = req.body;
+
+    if (!userId || taskIndex === undefined || !url) {
+        return res.json({ success: false, message: "User ID, task index, and URL are required." });
+    }
+
+    const taskKey = `${userId}_${taskIndex}`;
+    const now = Date.now();
+    const taskEntry = db.tasks.find(t => t.key === taskKey);
+
+    if (taskEntry && now < taskEntry.lockUntil) {
+        const remaining = Math.ceil((taskEntry.lockUntil - now) / 1000);
+        return res.json({ success: false, message: `Task is locked. Try again in ${remaining} seconds.` });
+    }
+
+    // Validate URL (basic check for non-empty string)
+    if (!url.startsWith('http')) {
+        return res.json({ success: false, message: "Invalid URL." });
+    }
+
+    // Update or add task entry
+    if (taskEntry) {
+        taskEntry.lockUntil = now + 60 * 60 * 1000; // 1 hour lock
+    } else {
+        db.tasks.push({ key: taskKey, userId, taskIndex, lockUntil: now + 60 * 60 * 1000 });
+    }
+
+    // Add 20 coins for task completion
+    if (!db.users[userId]) {
+        db.users[userId] = { balance: 0, hasLoggedIn: true };
+    }
+    db.users[userId].balance += 20;
+    saveDb();
+
+    res.json({ success: true, newBalance: db.users[userId].balance, lockUntil: now + 60 * 60 * 1000 });
+});
+
+// API endpoint to get task status
+app.post('/get-task-status', (req, res) => {
+    const { userId, taskIndex } = req.body;
+
+    const taskKey = `${userId}_${taskIndex}`;
+    const taskEntry = db.tasks.find(t => t.key === taskKey);
+
+    if (taskEntry) {
+        res.json({ completed: true, lockUntil: taskEntry.lockUntil });
+    } else {
+        res.json({ completed: false, lockUntil: 0 });
+    }
 });
 
 // Start the server
