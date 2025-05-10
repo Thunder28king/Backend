@@ -9,7 +9,7 @@ app.use(express.json());
 app.use(cors());
 
 // Telegram bot token
-const TELEGRAM_BOT_TOKEN = "7220176401:AAHf_0Vh3akSgPsOYobFMvkmvF2VQfz6XUQ";
+const TELEGRAM_BOT_TOKEN = "7423007718:AAF6Quzol_V7ZyXQvGlBdVWeKgBTOW_VMI4";
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
 // Admin Telegram ID
